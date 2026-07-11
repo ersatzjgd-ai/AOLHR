@@ -9,7 +9,7 @@ from email.header import decode_header
 
 # --- APP CONFIGURATION ---
 # --- APP CONFIGURATION ---
-st.set_page_config(page_title="Zoho Resume Extractor", page_icon="app_icon.png")
+st.set_page_config(page_title="AOL HR", page_icon="app_icon.png")
 
 
 # ==========================================

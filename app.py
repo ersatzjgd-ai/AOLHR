@@ -8,7 +8,9 @@ import io
 from email.header import decode_header
 
 # --- APP CONFIGURATION ---
-st.set_page_config(page_title="AOL HR", page_icon="📄")
+# --- APP CONFIGURATION ---
+st.set_page_config(page_title="Zoho Resume Extractor", page_icon="app_icon.png")
+
 
 # ==========================================
 # 1. SECURITY GATE (Railway Master Password)
@@ -58,6 +60,7 @@ def get_decoded_subject(msg):
 # ==========================================
 # 3. MAIN EXTRACTOR APPLICATION UI & LOGIC
 # ==========================================
+st.image("app_icon.png", width=100) # Adjust the width number to make it bigger/smaller
 st.title("AOL Human Resources ")
 st.write("Extract attachments containing 'CV' or 'Resume' in the filename, OR from emails with 'Resume' in the subject.")
 

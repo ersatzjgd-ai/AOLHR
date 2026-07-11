@@ -60,7 +60,7 @@ def get_decoded_subject(msg):
 # ==========================================
 # 3. MAIN EXTRACTOR APPLICATION UI & LOGIC
 # ==========================================
-st.image("app_icon.png", width=100) # Adjust the width number to make it bigger/smaller
+
 st.title("AOL Human Resources ")
 st.write("Extract attachments containing 'CV' or 'Resume' in the filename, OR from emails with 'Resume' in the subject.")
 

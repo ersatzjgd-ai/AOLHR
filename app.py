@@ -8,32 +8,28 @@ import io
 from email.header import decode_header
 
 # --- APP CONFIGURATION ---
-st.set_page_config(page_title="Gmail Resume Extractor", page_icon="📄")
+st.set_page_config(page_title="AOL HR", page_icon="📄")
 
 # ==========================================
 # 1. SECURITY GATE (Railway Master Password)
 # ==========================================
-# Pulls the secret password from Railway's environment variables. 
-# (Defaults to "local_dev_password" if you run it locally without setting an env var)
 MASTER_PASSWORD = os.environ.get("APP_MASTER_PASSWORD", "local_dev_password")
 
-# Initialize session state for authentication
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
-# If not authenticated, show the lock screen and stop execution
 if not st.session_state.authenticated:
-    st.title("🔒 Secure Access")
+    st.title("🔒 Secure Access only for AOL HR")
     st.write("This app is locked to prevent unauthorized compute usage.")
     pwd_input = st.text_input("Enter Master Password:", type="password")
     
     if st.button("Unlock App"):
         if pwd_input == MASTER_PASSWORD:
             st.session_state.authenticated = True
-            st.rerun()  # Refresh the page to load the actual app
+            st.rerun()
         else:
             st.error("Access Denied. Incorrect Master Password.")
-    st.stop()  # Prevents any code below this line from running until unlocked
+    st.stop()
 
 
 # ==========================================
@@ -43,50 +39,87 @@ def clean_filename(filename):
     """Removes invalid characters from file names to prevent OS errors."""
     return "".join(c for c in filename if c.isalnum() or c in (' ', '.', '_', '-')).rstrip()
 
+def get_decoded_subject(msg):
+    """Safely extracts and decodes the email subject line."""
+    raw_subject = msg.get("Subject", "")
+    if not raw_subject:
+        return ""
+        
+    decoded_parts = decode_header(raw_subject)
+    subject_str = ""
+    for part, charset in decoded_parts:
+        if isinstance(part, bytes):
+            subject_str += part.decode(charset or 'utf-8', errors='ignore')
+        else:
+            subject_str += str(part)
+    return subject_str.lower()
+
 
 # ==========================================
 # 3. MAIN EXTRACTOR APPLICATION UI & LOGIC
 # ==========================================
-st.title("📄 Bulk Gmail Resume Extractor")
-st.write("Extract all attachments containing 'CV' or 'Resume' in the filename from your entire Gmail history.")
+st.title("AOL Human Resources ")
+st.write("Extract attachments containing 'CV' or 'Resume' in the filename, OR from emails with 'Resume' in the subject.")
 
-st.markdown("### Enter Gmail Credentials")
-st.info("Reminder: You must use a 16-digit **App Password**, not your standard Gmail password.")
-email_input = st.text_input("Gmail Address", placeholder="you@gmail.com")
-password_input = st.text_input("App Password", type="password", placeholder="16-digit app password (no spaces)")
+# INSTRUCTIONS FOR ZOHO
+st.markdown("""
+### 🔐 How to Generate Your Zoho App Password
+To protect your account, Zoho requires an App-Specific Password for this tool.
+
+**Follow these steps:**
+1. Log into your [Zoho Accounts Security Page](https://accounts.zoho.com/home#security).
+2. Look for **App Passwords** and click on it. (Ensure Two-Factor Authentication is enabled first).
+3. Click **Generate New Password**.
+4. Name it "Resume Extractor" and click Generate.
+5. Copy the password provided and paste it below. 
+
+*Note: You must also ensure IMAP is enabled in your Zoho Mail Settings (Settings > Mail Accounts > IMAP Access).*
+""")
+
+st.markdown("---")
+st.markdown("### Enter Zoho Credentials")
+email_input = st.text_input("Zoho Email Address", placeholder="you@zohomail.com")
+password_input = st.text_input("Zoho App Password", type="password", placeholder="Paste your generated app password")
 
 if st.button("Extract & Zip Resumes"):
     if not email_input or not password_input:
-        st.error("Please provide both your Gmail address and App Password.")
+        st.error("Please provide both your Zoho email address and App Password.")
     else:
-        with st.spinner("Connecting to Gmail and searching your entire history. This may take a few minutes..."):
+        with st.spinner("Connecting to Zoho and scanning your inbox. This may take a few minutes..."):
             try:
-                # Connect and Authenticate
-                mail = imaplib.IMAP4_SSL("imap.gmail.com")
+                # 1. Connect to Zoho IMAP Server
+                mail = imaplib.IMAP4_SSL("imap.zoho.com")
                 mail.login(email_input, password_input)
                 
-                # Search All Mail on Google's Servers
-                mail.select('"[Gmail]/All Mail"')
-                search_query = 'has:attachment (filename:cv OR filename:resume)'
-                status, messages = mail.search(None, 'X-GM-RAW', f'"{search_query}"')
+                # 2. Select the Inbox
+                # Note: Unlike Gmail's "All Mail", traditional IMAP requires specifying a folder. 
+                mail.select('"INBOX"')
+                
+                # 3. Standard IMAP Search Query
+                # This asks the server for emails containing "resume" or "cv" in the subject or text.
+                search_query = 'OR TEXT "resume" TEXT "cv"'
+                status, messages = mail.search(None, search_query)
                 
                 if status != "OK" or not messages[0]:
-                    st.warning("No emails found matching the criteria.")
+                    st.warning("No emails found matching the criteria in your Inbox.")
                 else:
                     email_ids = messages[0].split()
                     total_emails = len(email_ids)
-                    st.success(f"Found {total_emails} emails with matching attachments. Beginning extraction...")
+                    st.success(f"Found {total_emails} potential emails. Filtering and extracting attachments...")
                     
-                    # Process Downloads in a Secure Temporary Directory
                     with tempfile.TemporaryDirectory() as temp_dir:
                         saved_count = 0
                         progress_bar = st.progress(0)
+                        
+                        valid_doc_extensions = ('.pdf', '.doc', '.docx', '.txt', '.rtf')
                         
                         for index, e_id in enumerate(email_ids):
                             res, msg_data = mail.fetch(e_id, "(RFC822)")
                             for response_part in msg_data:
                                 if isinstance(response_part, tuple):
                                     msg = email.message_from_bytes(response_part[1])
+                                    
+                                    subject_lower = get_decoded_subject(msg)
                                     
                                     if msg.is_multipart():
                                         for part in msg.walk():
@@ -95,7 +128,6 @@ if st.button("Extract & Zip Resumes"):
 
                                             filename = part.get_filename()
                                             if filename:
-                                                # Handle special character encoding in filenames
                                                 decoded, charset = decode_header(filename)[0]
                                                 if isinstance(decoded, bytes):
                                                     filename = decoded.decode(charset or 'utf-8')
@@ -103,11 +135,13 @@ if st.button("Extract & Zip Resumes"):
                                                 filename = clean_filename(filename)
                                                 fname_lower = filename.lower()
                                                 
-                                                # Strict check for CV or Resume in the actual file name
-                                                if 'cv' in fname_lower or 'resume' in fname_lower:
+                                                is_document = fname_lower.endswith(valid_doc_extensions)
+                                                
+                                                # Strict filtering applied in Python to drop false-positives from the broad IMAP search
+                                                if 'cv' in fname_lower or 'resume' in fname_lower or ('resume' in subject_lower and is_document):
                                                     filepath = os.path.join(temp_dir, filename)
                                                     
-                                                    # Collision handling for identically named files (e.g. resume(1).pdf)
+                                                    # Collision handling
                                                     counter = 1
                                                     base_name, ext = os.path.splitext(filename)
                                                     while os.path.exists(filepath):
@@ -118,10 +152,8 @@ if st.button("Extract & Zip Resumes"):
                                                         f.write(part.get_payload(decode=True))
                                                     saved_count += 1
                             
-                            # Update visual progress bar
                             progress_bar.progress((index + 1) / total_emails)
                         
-                        # Zip the files directly into memory (prevents server clutter)
                         if saved_count > 0:
                             st.success(f"Successfully processed {saved_count} resumes! Preparing your download...")
                             
@@ -132,20 +164,19 @@ if st.button("Extract & Zip Resumes"):
                                         file_path = os.path.join(root, file)
                                         zipf.write(file_path, arcname=file)
                             
-                            # Trigger Streamlit Download Button
                             st.download_button(
                                 label="⬇️ Download Resumes (ZIP)",
                                 data=zip_buffer.getvalue(),
-                                file_name="extracted_resumes.zip",
+                                file_name="zoho_extracted_resumes.zip",
                                 mime="application/zip",
                                 type="primary"
                             )
                         else:
-                            st.warning("Processed emails, but no matching files were successfully extracted.")
+                            st.warning("Processed potential emails, but no matching resume files were found.")
                             
                 mail.logout()
             
             except imaplib.IMAP4.error:
-                st.error("Authentication failed. Please verify your Gmail address and 16-digit App Password.")
+                st.error("Authentication failed. Ensure IMAP is enabled in Zoho and your App Password is correct.")
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")

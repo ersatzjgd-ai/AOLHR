@@ -91,7 +91,7 @@ if st.button("Extract & Zip Resumes"):
         with st.spinner("Connecting to Zoho and scanning your inbox. This may take a few minutes..."):
             try:
                 # 1. Connect to Zoho IMAP Server
-                mail = imaplib.IMAP4_SSL("imap.zoho.com")
+                mail = imaplib.IMAP4_SSL("imap.zoho.in")
                 mail.login(email_input, password_input)
                 
                 # 2. Select the Inbox

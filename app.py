@@ -20,7 +20,7 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     st.title("🔒 Secure Access only for AOL HR")
-    st.write("This app is locked to prevent unauthorized compute usage.")
+    st.write("This site is locked to prevent unauthorized compute usage.")
     pwd_input = st.text_input("Enter Master Password:", type="password")
     
     if st.button("Unlock App"):

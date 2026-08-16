@@ -8,9 +8,7 @@ import io
 from email.header import decode_header
 
 # --- APP CONFIGURATION ---
-# --- APP CONFIGURATION ---
 st.set_page_config(page_title="AOL HR", page_icon="app_icon.png")
-
 
 # ==========================================
 # 1. SECURITY GATE (Railway Master Password)
@@ -32,7 +30,6 @@ if not st.session_state.authenticated:
         else:
             st.error("Access Denied. Incorrect Master Password.")
     st.stop()
-
 
 # ==========================================
 # 2. HELPER FUNCTIONS
@@ -56,50 +53,68 @@ def get_decoded_subject(msg):
             subject_str += str(part)
     return subject_str.lower()
 
-
 # ==========================================
 # 3. MAIN EXTRACTOR APPLICATION UI & LOGIC
 # ==========================================
 
-st.title("AOL Human Resources ")
+st.title("AOL Human Resources")
 st.write("Extract attachments containing 'CV' or 'Resume' in the filename, OR from emails with 'Resume' in the subject.")
 
-# INSTRUCTIONS FOR ZOHO
-st.markdown("""
-### 🔐 How to Generate Your Zoho App Password
-To protect your account, Zoho requires an App-Specific Password for this tool.
+st.markdown("---")
 
-**Follow these steps:**
-1. Log into your [Zoho Accounts Security Page](https://accounts.zoho.com/home#security).
-2. Look for **App Passwords** and click on it. (Ensure Two-Factor Authentication is enabled first).
-3. Click **Generate New Password**.
-4. Name it "Resume Extractor" and click Generate.
-5. Copy the password provided and paste it below. 
+# --- PROVIDER SELECTION ---
+provider = st.radio("Select your Email Provider:", ("Zoho", "Gmail"), horizontal=True)
 
-*Note: You must also ensure IMAP is enabled in your Zoho Mail Settings (Settings > Mail Accounts > IMAP Access).*
-""")
+# --- DYNAMIC INSTRUCTIONS ---
+if provider == "Zoho":
+    st.markdown("""
+    ### 🔐 How to Generate Your Zoho App Password
+    To protect your account, Zoho requires an App-Specific Password for this tool.
+
+    **Follow these steps:**
+    1. Log into your [Zoho Accounts Security Page](https://accounts.zoho.com/home#security).
+    2. Look for **App Passwords** and click on it. (Ensure Two-Factor Authentication is enabled first).
+    3. Click **Generate New Password**.
+    4. Name it "Resume Extractor" and click Generate.
+    5. Copy the password provided and paste it below. 
+
+    *Note: You must also ensure IMAP is enabled in your Zoho Mail Settings (Settings > Mail Accounts > IMAP Access).*
+    """)
+else:
+    st.markdown("""
+    ### 🔐 How to Generate Your Gmail App Password
+    To protect your account, Google requires an App-Specific Password for this tool.
+
+    **Follow these steps:**
+    1. Go to your [Google Account Security Page](https://myaccount.google.com/security).
+    2. Ensure **2-Step Verification** is turned on.
+    3. Search for **App passwords** in the top search bar (or find it under 2-Step Verification).
+    4. Provide a name like "Resume Extractor" and click **Create**.
+    5. Copy the 16-character password provided and paste it below.
+
+    *Note: You must also ensure IMAP is enabled in your Gmail Settings (Settings > Forwarding and POP/IMAP > Enable IMAP).*
+    """)
 
 st.markdown("---")
-st.markdown("### Enter Zoho Credentials")
-email_input = st.text_input("Zoho Email Address", placeholder="you@zohomail.com")
-password_input = st.text_input("Zoho App Password", type="password", placeholder="Paste your generated app password")
+st.markdown(f"### Enter {provider} Credentials")
+email_input = st.text_input(f"{provider} Email Address", placeholder=f"you@{'zohomail.com' if provider == 'Zoho' else 'gmail.com'}")
+password_input = st.text_input(f"{provider} App Password", type="password", placeholder="Paste your generated app password")
 
 if st.button("Extract & Zip Resumes"):
     if not email_input or not password_input:
-        st.error("Please provide both your Zoho email address and App Password.")
+        st.error(f"Please provide both your {provider} email address and App Password.")
     else:
-        with st.spinner("Connecting to Zoho and scanning your inbox. This may take a few minutes..."):
+        with st.spinner(f"Connecting to {provider} and scanning your inbox. This may take a few minutes..."):
             try:
-                # 1. Connect to Zoho IMAP Server
-                mail = imaplib.IMAP4_SSL("imap.zoho.in")
+                # 1. Connect to Dynamic IMAP Server
+                imap_host = "imap.zoho.in" if provider == "Zoho" else "imap.gmail.com"
+                mail = imaplib.IMAP4_SSL(imap_host)
                 mail.login(email_input, password_input)
                 
                 # 2. Select the Inbox
-                # Note: Unlike Gmail's "All Mail", traditional IMAP requires specifying a folder. 
                 mail.select('"INBOX"')
                 
                 # 3. Standard IMAP Search Query
-                # This asks the server for emails containing "resume" or "cv" in the subject or text.
                 search_query = 'OR TEXT "resume" TEXT "cv"'
                 status, messages = mail.search(None, search_query)
                 
@@ -140,7 +155,7 @@ if st.button("Extract & Zip Resumes"):
                                                 
                                                 is_document = fname_lower.endswith(valid_doc_extensions)
                                                 
-                                                # Strict filtering applied in Python to drop false-positives from the broad IMAP search
+                                                # Strict filtering applied in Python
                                                 if 'cv' in fname_lower or 'resume' in fname_lower or ('resume' in subject_lower and is_document):
                                                     filepath = os.path.join(temp_dir, filename)
                                                     
@@ -170,7 +185,7 @@ if st.button("Extract & Zip Resumes"):
                             st.download_button(
                                 label="⬇️ Download Resumes (ZIP)",
                                 data=zip_buffer.getvalue(),
-                                file_name="zoho_extracted_resumes.zip",
+                                file_name=f"{provider.lower()}_extracted_resumes.zip",
                                 mime="application/zip",
                                 type="primary"
                             )
@@ -180,6 +195,6 @@ if st.button("Extract & Zip Resumes"):
                 mail.logout()
             
             except imaplib.IMAP4.error:
-                st.error("Authentication failed. Ensure IMAP is enabled in Zoho and your App Password is correct.")
+                st.error(f"Authentication failed. Ensure IMAP is enabled in {provider} and your App Password is correct.")
             except Exception as e:
                 st.error(f"An unexpected error occurred: {e}")

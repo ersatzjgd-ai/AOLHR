@@ -106,7 +106,7 @@ if st.button("Extract & Zip Resumes"):
     else:
         with st.spinner(f"Connecting to {provider} and scanning your inbox. This may take a few minutes..."):
             try:
-                # 1. Connect to Dynamic IMAP Server
+                # 1. Connect to Dynamic IMAP Server (Updated with imappro for Zoho Pro)
                 imap_host = "imappro.zoho.in" if provider == "Zoho" else "imap.gmail.com"
                 mail = imaplib.IMAP4_SSL(imap_host)
                 mail.login(email_input, password_input)
@@ -114,14 +114,21 @@ if st.button("Extract & Zip Resumes"):
                 # 2. Select the Inbox
                 mail.select('"INBOX"')
                 
-                # 3. Standard IMAP Search Query
-                search_query = 'OR TEXT "resume" TEXT "cv"'
-                status, messages = mail.search(None, search_query)
+                # 3. Bulletproof IMAP Search (Bypassing Zoho's OR bug)
+                status1, msgs1 = mail.search(None, 'TEXT "resume"')
+                status2, msgs2 = mail.search(None, 'TEXT "cv"')
                 
-                if status != "OK" or not messages[0]:
-                    st.warning("No emails found matching the criteria in your Inbox.")
+                # Combine results and remove duplicates using a Python Set
+                raw_ids = set()
+                if status1 == "OK" and msgs1[0]:
+                    raw_ids.update(msgs1[0].split())
+                if status2 == "OK" and msgs2[0]:
+                    raw_ids.update(msgs2[0].split())
+                
+                if not raw_ids:
+                    st.warning("No emails found matching 'resume' or 'cv' in your main Inbox. (Check if they are in a different folder!)")
                 else:
-                    email_ids = messages[0].split()
+                    email_ids = list(raw_ids)
                     total_emails = len(email_ids)
                     st.success(f"Found {total_emails} potential emails. Filtering and extracting attachments...")
                     

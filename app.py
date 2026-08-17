@@ -58,7 +58,7 @@ def get_decoded_subject(msg):
 # ==========================================
 
 st.title("AOL Human Resources")
-st.write("Extract attachments containing 'CV' or 'Resume' in the filename, OR from emails with 'Resume' in the subject.")
+st.write("Extract attachments containing 'CV' or 'Resume' in the filename, OR from emails with 'Resume' in the subject (Batched up to 1,000 per run).")
 
 st.markdown("---")
 
@@ -100,13 +100,13 @@ st.markdown(f"### Enter {provider} Credentials")
 email_input = st.text_input(f"{provider} Email Address", placeholder=f"you@{'zohomail.com' if provider == 'Zoho' else 'gmail.com'}")
 password_input = st.text_input(f"{provider} App Password", type="password", placeholder="Paste your generated app password")
 
-if st.button("Extract & Zip Resumes"):
+if st.button("Extract & Zip Resumes (Batch of 1,000)"):
     if not email_input or not password_input:
         st.error(f"Please provide both your {provider} email address and App Password.")
     else:
-        with st.spinner(f"Connecting to {provider} and scanning your inbox. This may take a few minutes..."):
+        with st.spinner(f"Connecting to {provider} and scanning your inbox..."):
             try:
-                # 1. Connect to Dynamic IMAP Server (Updated with imappro for Zoho Pro)
+                # 1. Connect to Dynamic IMAP Server
                 imap_host = "imappro.zoho.in" if provider == "Zoho" else "imap.gmail.com"
                 mail = imaplib.IMAP4_SSL(imap_host)
                 mail.login(email_input, password_input)
@@ -118,7 +118,6 @@ if st.button("Extract & Zip Resumes"):
                 status1, msgs1 = mail.search(None, 'TEXT "resume"')
                 status2, msgs2 = mail.search(None, 'TEXT "cv"')
                 
-                # Combine results and remove duplicates using a Python Set
                 raw_ids = set()
                 if status1 == "OK" and msgs1[0]:
                     raw_ids.update(msgs1[0].split())
@@ -126,17 +125,25 @@ if st.button("Extract & Zip Resumes"):
                     raw_ids.update(msgs2[0].split())
                 
                 if not raw_ids:
-                    st.warning("No emails found matching 'resume' or 'cv' in your main Inbox. (Check if they are in a different folder!)")
+                    st.warning("No emails found matching 'resume' or 'cv' in your main Inbox.")
                 else:
                     email_ids = list(raw_ids)
                     total_emails = len(email_ids)
-                    st.success(f"Found {total_emails} potential emails. Filtering and extracting attachments...")
+                    
+                    # --- BATCHING LOGIC (MAX 1000) ---
+                    BATCH_LIMIT = 1000
+                    if total_emails > BATCH_LIMIT:
+                        st.info(f"Found {total_emails} total emails. Processing the first {BATCH_LIMIT} for this batch. Run again later for subsequent batches.")
+                        email_ids = email_ids[:BATCH_LIMIT]
+                    else:
+                        st.success(f"Found {total_emails} potential emails. Filtering and extracting attachments...")
                     
                     with tempfile.TemporaryDirectory() as temp_dir:
                         saved_count = 0
                         progress_bar = st.progress(0)
                         
                         valid_doc_extensions = ('.pdf', '.doc', '.docx', '.txt', '.rtf')
+                        current_processed = len(email_ids)
                         
                         for index, e_id in enumerate(email_ids):
                             res, msg_data = mail.fetch(e_id, "(RFC822)")
@@ -162,11 +169,9 @@ if st.button("Extract & Zip Resumes"):
                                                 
                                                 is_document = fname_lower.endswith(valid_doc_extensions)
                                                 
-                                                # Strict filtering applied in Python
                                                 if 'cv' in fname_lower or 'resume' in fname_lower or ('resume' in subject_lower and is_document):
                                                     filepath = os.path.join(temp_dir, filename)
                                                     
-                                                    # Collision handling
                                                     counter = 1
                                                     base_name, ext = os.path.splitext(filename)
                                                     while os.path.exists(filepath):
@@ -177,10 +182,10 @@ if st.button("Extract & Zip Resumes"):
                                                         f.write(part.get_payload(decode=True))
                                                     saved_count += 1
                             
-                            progress_bar.progress((index + 1) / total_emails)
+                            progress_bar.progress((index + 1) / current_processed)
                         
                         if saved_count > 0:
-                            st.success(f"Successfully processed {saved_count} resumes! Preparing your download...")
+                            st.success(f"Successfully processed {saved_count} resumes in this batch! Preparing your download...")
                             
                             zip_buffer = io.BytesIO()
                             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -190,14 +195,14 @@ if st.button("Extract & Zip Resumes"):
                                         zipf.write(file_path, arcname=file)
                             
                             st.download_button(
-                                label="⬇️ Download Resumes (ZIP)",
+                                label="⬇️ Download Resumes Batch (ZIP)",
                                 data=zip_buffer.getvalue(),
-                                file_name=f"{provider.lower()}_extracted_resumes.zip",
+                                file_name=f"{provider.lower()}_resumes_batch.zip",
                                 mime="application/zip",
                                 type="primary"
                             )
                         else:
-                            st.warning("Processed potential emails, but no matching resume files were found.")
+                            st.warning("Processed this batch of emails, but no matching resume attachment files were found.")
                             
                 mail.logout()
             

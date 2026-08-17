@@ -107,7 +107,7 @@ if st.button("Extract & Zip Resumes"):
         with st.spinner(f"Connecting to {provider} and scanning your inbox. This may take a few minutes..."):
             try:
                 # 1. Connect to Dynamic IMAP Server
-                imap_host = "imap.zoho.com" if provider == "Zoho" else "imap.gmail.com"
+                imap_host = "imappro.zoho.in" if provider == "Zoho" else "imap.gmail.com"
                 mail = imaplib.IMAP4_SSL(imap_host)
                 mail.login(email_input, password_input)
                 

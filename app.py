@@ -1,212 +1,144 @@
 import streamlit as st
-import os
-import imaplib
-import email
-import zipfile
-import tempfile
-import io
-from email.header import decode_header
+import pandas as pd
+from rapidfuzz import fuzz
 
-# --- APP CONFIGURATION ---
-st.set_page_config(page_title="AOL HR", page_icon="app_icon.png")
+# --- CONFIGURATION ---
+# Change these variables to match your exact Google Sheet column names
+COL_NAME = "Candidate Name"
+COL_ROLE = "Role"
+COL_INDUSTRY = "Industry"
+COL_RESUME = "Resume Link"
 
-# ==========================================
-# 1. SECURITY GATE (Railway Master Password)
-# ==========================================
-MASTER_PASSWORD = os.environ.get("APP_MASTER_PASSWORD", "local_dev_password")
+# Basic Semantic Dictionary (Expand this based on your needs)
+SYNONYMS = {
+    "frontend": ["react", "angular", "vue", "ui", "javascript", "css"],
+    "backend": ["python", "node", "java", "django", "sql", "api"],
+    "hr": ["human resources", "recruiter", "talent acquisition"],
+    "data": ["analyst", "scientist", "machine learning", "sql", "database"],
+}
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+st.set_page_config(page_title="Candidate Search Hub", page_icon="🔍", layout="wide")
 
-if not st.session_state.authenticated:
-    st.title("🔒 Secure Access only for AOL HR")
-    st.write("This site is locked to prevent unauthorized compute usage.")
-    pwd_input = st.text_input("Enter Master Password:", type="password")
+# --- DATA LOADING ---
+@st.cache_data(ttl=300) # Caches data for 5 mins to auto-refresh changes from Google Sheets
+def load_data():
+    # Safely get the URL from Streamlit secrets
+    try:
+        csv_url = st.secrets["sheet_csv_url"]
+    except KeyError:
+        st.error("Missing 'sheet_csv_url' in secrets.toml (or Railway environment variables)!")
+        st.stop()
+
+    # Read the CSV directly from the web URL
+    df = pd.read_csv(csv_url)
     
-    if st.button("Unlock App"):
-        if pwd_input == MASTER_PASSWORD:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Access Denied. Incorrect Master Password.")
+    # Clean empty rows
+    df = df.dropna(subset=[COL_NAME, COL_ROLE]) 
+    df = df.fillna("")
+    
+    # Create a hidden combined column for robust searching
+    df["_Search_Text"] = df.astype(str).apply(lambda row: ' '.join(row.values).lower(), axis=1)
+    return df
+
+try:
+    df = load_data()
+except Exception as e:
+    st.error(f"Could not read the Google Sheet. Error: {e}")
     st.stop()
 
-# ==========================================
-# 2. HELPER FUNCTIONS
-# ==========================================
-def clean_filename(filename):
-    """Removes invalid characters from file names to prevent OS errors."""
-    return "".join(c for c in filename if c.isalnum() or c in (' ', '.', '_', '-')).rstrip()
+# --- HELPER FUNCTIONS ---
+def expand_query_with_synonyms(query):
+    query = query.lower()
+    words = query.split()
+    expanded_words = set(words)
+    
+    for word in words:
+        for key, related_terms in SYNONYMS.items():
+            if word == key or word in related_terms:
+                expanded_words.add(key)
+                expanded_words.update(related_terms)
+                
+    return list(expanded_words)
 
-def get_decoded_subject(msg):
-    """Safely extracts and decodes the email subject line."""
-    raw_subject = msg.get("Subject", "")
-    if not raw_subject:
-        return ""
+def search_candidates(dataframe, query, selected_roles, selected_industries):
+    filtered_df = dataframe.copy()
+    
+    # 1. Filter by Dynamic Tags (Roles & Industries)
+    if selected_roles:
+        filtered_df = filtered_df[filtered_df[COL_ROLE].isin(selected_roles)]
+    if selected_industries:
+        filtered_df = filtered_df[filtered_df[COL_INDUSTRY].isin(selected_industries)]
         
-    decoded_parts = decode_header(raw_subject)
-    subject_str = ""
-    for part, charset in decoded_parts:
-        if isinstance(part, bytes):
-            subject_str += part.decode(charset or 'utf-8', errors='ignore')
-        else:
-            subject_str += str(part)
-    return subject_str.lower()
-
-# ==========================================
-# 3. MAIN EXTRACTOR APPLICATION UI & LOGIC
-# ==========================================
-
-st.title("AOL Human Resources")
-st.write("Extract attachments containing 'CV' or 'Resume' in the filename, OR from emails with 'Resume' in the subject (Batched up to 1,000 per run).")
-
-st.markdown("---")
-
-# --- PROVIDER SELECTION ---
-provider = st.radio("Select your Email Provider:", ("Zoho", "Gmail"), horizontal=True)
-
-# --- DYNAMIC INSTRUCTIONS ---
-if provider == "Zoho":
-    st.markdown("""
-    ### 🔐 How to Generate Your Zoho App Password
-    To protect your account, Zoho requires an App-Specific Password for this tool.
-
-    **Follow these steps:**
-    1. Log into your [Zoho Accounts Security Page](https://accounts.zoho.com/home#security).
-    2. Look for **App Passwords** and click on it. (Ensure Two-Factor Authentication is enabled first).
-    3. Click **Generate New Password**.
-    4. Name it "Resume Extractor" and click Generate.
-    5. Copy the password provided and paste it below. 
-
-    *Note: You must also ensure IMAP is enabled in your Zoho Mail Settings (Settings > Mail Accounts > IMAP Access).*
-    """)
-else:
-    st.markdown("""
-    ### 🔐 How to Generate Your Gmail App Password
-    To protect your account, Google requires an App-Specific Password for this tool.
-
-    **Follow these steps:**
-    1. Go to your [Google Account Security Page](https://myaccount.google.com/security).
-    2. Ensure **2-Step Verification** is turned on.
-    3. Search for **App passwords** in the top search bar (or find it under 2-Step Verification).
-    4. Provide a name like "Resume Extractor" and click **Create**.
-    5. Copy the 16-character password provided and paste it below.
-
-    *Note: You must also ensure IMAP is enabled in your Gmail Settings (Settings > Forwarding and POP/IMAP > Enable IMAP).*
-    """)
-
-st.markdown("---")
-st.markdown(f"### Enter {provider} Credentials")
-email_input = st.text_input(f"{provider} Email Address", placeholder=f"you@{'zohomail.com' if provider == 'Zoho' else 'gmail.com'}")
-password_input = st.text_input(f"{provider} App Password", type="password", placeholder="Paste your generated app password")
-
-if st.button("Extract & Zip Resumes (Batch of 1,000)"):
-    if not email_input or not password_input:
-        st.error(f"Please provide both your {provider} email address and App Password.")
-    else:
-        with st.spinner(f"Connecting to {provider} and scanning your inbox..."):
-            try:
-                # 1. Connect to Dynamic IMAP Server
-                imap_host = "imappro.zoho.in" if provider == "Zoho" else "imap.gmail.com"
-                mail = imaplib.IMAP4_SSL(imap_host)
-                mail.login(email_input, password_input)
-                
-                # 2. Select the Inbox
-                mail.select('"INBOX"')
-                
-                # 3. Bulletproof IMAP Search (Bypassing Zoho's OR bug)
-                status1, msgs1 = mail.search(None, 'TEXT "resume"')
-                status2, msgs2 = mail.search(None, 'TEXT "cv"')
-                
-                raw_ids = set()
-                if status1 == "OK" and msgs1[0]:
-                    raw_ids.update(msgs1[0].split())
-                if status2 == "OK" and msgs2[0]:
-                    raw_ids.update(msgs2[0].split())
-                
-                if not raw_ids:
-                    st.warning("No emails found matching 'resume' or 'cv' in your main Inbox.")
-                else:
-                    email_ids = list(raw_ids)
-                    total_emails = len(email_ids)
-                    
-                    # --- BATCHING LOGIC (MAX 1000) ---
-                    BATCH_LIMIT = 1000
-                    if total_emails > BATCH_LIMIT:
-                        st.info(f"Found {total_emails} total emails. Processing the first {BATCH_LIMIT} for this batch. Run again later for subsequent batches.")
-                        email_ids = email_ids[:BATCH_LIMIT]
-                    else:
-                        st.success(f"Found {total_emails} potential emails. Filtering and extracting attachments...")
-                    
-                    with tempfile.TemporaryDirectory() as temp_dir:
-                        saved_count = 0
-                        progress_bar = st.progress(0)
-                        
-                        valid_doc_extensions = ('.pdf', '.doc', '.docx', '.txt', '.rtf')
-                        current_processed = len(email_ids)
-                        
-                        for index, e_id in enumerate(email_ids):
-                            res, msg_data = mail.fetch(e_id, "(RFC822)")
-                            for response_part in msg_data:
-                                if isinstance(response_part, tuple):
-                                    msg = email.message_from_bytes(response_part[1])
-                                    
-                                    subject_lower = get_decoded_subject(msg)
-                                    
-                                    if msg.is_multipart():
-                                        for part in msg.walk():
-                                            if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None:
-                                                continue
-
-                                            filename = part.get_filename()
-                                            if filename:
-                                                decoded, charset = decode_header(filename)[0]
-                                                if isinstance(decoded, bytes):
-                                                    filename = decoded.decode(charset or 'utf-8')
-                                                
-                                                filename = clean_filename(filename)
-                                                fname_lower = filename.lower()
-                                                
-                                                is_document = fname_lower.endswith(valid_doc_extensions)
-                                                
-                                                if 'cv' in fname_lower or 'resume' in fname_lower or ('resume' in subject_lower and is_document):
-                                                    filepath = os.path.join(temp_dir, filename)
-                                                    
-                                                    counter = 1
-                                                    base_name, ext = os.path.splitext(filename)
-                                                    while os.path.exists(filepath):
-                                                        filepath = os.path.join(temp_dir, f"{base_name}_{counter}{ext}")
-                                                        counter += 1
-
-                                                    with open(filepath, "wb") as f:
-                                                        f.write(part.get_payload(decode=True))
-                                                    saved_count += 1
-                            
-                            progress_bar.progress((index + 1) / current_processed)
-                        
-                        if saved_count > 0:
-                            st.success(f"Successfully processed {saved_count} resumes in this batch! Preparing your download...")
-                            
-                            zip_buffer = io.BytesIO()
-                            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-                                for root, _, files in os.walk(temp_dir):
-                                    for file in files:
-                                        file_path = os.path.join(root, file)
-                                        zipf.write(file_path, arcname=file)
-                            
-                            st.download_button(
-                                label="⬇️ Download Resumes Batch (ZIP)",
-                                data=zip_buffer.getvalue(),
-                                file_name=f"{provider.lower()}_resumes_batch.zip",
-                                mime="application/zip",
-                                type="primary"
-                            )
-                        else:
-                            st.warning("Processed this batch of emails, but no matching resume attachment files were found.")
-                            
-                mail.logout()
+    # 2. Text Search with Fuzzy & Semantic Matching
+    if query:
+        expanded_terms = expand_query_with_synonyms(query)
+        
+        def calculate_match_score(text):
+            score = 0
+            # Check for exact/partial substring matches of expanded terms (Semantic)
+            for term in expanded_terms:
+                if term in text:
+                    score += 50
             
-            except imaplib.IMAP4.error:
-                st.error(f"Authentication failed. Ensure IMAP is enabled in {provider} and your App Password is correct.")
-            except Exception as e:
-                st.error(f"An unexpected error occurred: {e}")
+            # Check for typos against the raw query (Fuzzy)
+            fuzzy_score = fuzz.partial_ratio(query.lower(), text)
+            if fuzzy_score > 75: # Threshold for typos
+                score += fuzzy_score
+                
+            return score
+
+        filtered_df["_Score"] = filtered_df["_Search_Text"].apply(calculate_match_score)
+        # Keep only rows with a score > 0 and sort by best match
+        filtered_df = filtered_df[filtered_df["_Score"] > 0].sort_values(by="_Score", ascending=False)
+        
+    return filtered_df
+
+# --- UI LAYOUT ---
+st.title("🔍 HR Candidate Search")
+
+# Search Bar
+search_query = st.text_input("Search by Name, Skills, or Keywords...", placeholder="e.g., John Doe, Frontend, Python...")
+
+# Dynamic Tags (Generated automatically from sheet data)
+col1, col2 = st.columns(2)
+with col1:
+    all_roles = sorted(list(df[COL_ROLE].unique()))
+    selected_roles = st.multiselect("Filter by Role", all_roles)
+with col2:
+    all_industries = sorted(list(df[COL_INDUSTRY].unique()))
+    selected_industries = st.multiselect("Filter by Industry", all_industries)
+
+st.divider()
+
+# --- DISPLAY RESULTS ---
+results_df = search_candidates(df, search_query, selected_roles, selected_industries)
+
+if results_df.empty:
+    st.warning("No candidates found matching your criteria.")
+else:
+    st.success(f"Found {len(results_df)} candidate(s)")
+    
+    # Render Candidate Cards
+    for _, row in results_df.iterrows():
+        with st.container():
+            st.markdown(f"""
+                <div style="
+                    border: 1px solid #e0e0e0; 
+                    border-radius: 8px; 
+                    padding: 20px; 
+                    margin-bottom: 10px;
+                    background-color: #f9f9fb;
+                    color: #333;">
+                    <h3 style="margin-top: 0; color: #0056b3;">{row[COL_NAME]}</h3>
+                    <p style="margin-bottom: 5px; font-size: 16px;">
+                        <b>Role:</b> {row[COL_ROLE]} <br>
+                        <b>Industry:</b> {row[COL_INDUSTRY]}
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Link button opens the resume in a new tab natively
+            if pd.notna(row[COL_RESUME]) and str(row[COL_RESUME]).strip() != "":
+                st.link_button("📄 View Resume", row[COL_RESUME])
+            
+            st.write("") # small spacer between cards

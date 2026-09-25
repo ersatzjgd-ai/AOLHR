@@ -16,7 +16,7 @@ SYNONYMS = {
     "data": ["analyst", "scientist", "machine learning", "sql", "database"],
 }
 
-st.set_page_config(page_title="Candidate Search Hub", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="AOLHR", page_icon="🔍", layout="wide")
 
 # --- AUTHENTICATION ---
 def check_password():
@@ -26,7 +26,7 @@ def check_password():
         return True
 
     # Show login screen
-    st.title("🔒 HR Candidate Search Hub")
+    st.title("🔒 AOL HR Candidate Search")
     st.write("Please log in to access the candidate database.")
     
     with st.form("login_form"):
@@ -142,7 +142,7 @@ def search_candidates(dataframe, query, selected_roles, selected_industries):
     return filtered_df
 
 # --- UI LAYOUT ---
-st.title("🔍 HR Candidate Search")
+st.title("🔍 AOL HR Candidate Search")
 
 # Logout button
 if st.button("Logout", type="secondary"):

@@ -4,10 +4,10 @@ import pandas as pd
 from rapidfuzz import fuzz
 
 # --- CONFIGURATION ---
-COL_NAME = "Candidate Name"
-COL_ROLE = "Role"
-COL_INDUSTRY = "Industry"
-COL_RESUME = "Resume Link"
+COL_NAME = "Name"
+COL_ROLE = "Field/Sector"
+COL_INDUSTRY = "Field/Sector"
+COL_RESUME = "Resume"
 
 SYNONYMS = {
     "frontend": ["react", "angular", "vue", "ui", "javascript", "css"],

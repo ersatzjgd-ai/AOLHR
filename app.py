@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 from rapidfuzz import fuzz
@@ -18,7 +19,6 @@ SYNONYMS = {
 st.set_page_config(page_title="Candidate Search Hub", page_icon="🔍", layout="wide")
 
 # --- INITIALIZE FALLBACK DATAFRAME ---
-# Prevents NameError if the data fails to load
 df = pd.DataFrame(columns=[COL_NAME, COL_ROLE, COL_INDUSTRY, COL_RESUME, "_Search_Text"])
 
 # --- DATA LOADING ---
@@ -31,12 +31,25 @@ def load_data(csv_url):
     return data
 
 # --- SECRETS CHECK & EXECUTION ---
-if "sheet_csv_url" not in st.secrets:
-    st.error("Missing 'sheet_csv_url' in secrets! Ensure your Railway STREAMLIT_SECRETS_TOML environment variable is set correctly.")
+csv_url = None
+
+# 1. Try Railway Environment Variables
+if "SHEET_CSV_URL" in os.environ:
+    csv_url = os.environ["SHEET_CSV_URL"]
+else:
+    # 2. Try Streamlit Secrets (for local development)
+    try:
+        if "sheet_csv_url" in st.secrets:
+            csv_url = st.secrets["sheet_csv_url"]
+    except FileNotFoundError:
+        pass # Ignore the error if no secrets file exists
+
+if not csv_url:
+    st.error("Missing 'SHEET_CSV_URL'! Ensure your Railway environment variable is set.")
     st.stop()
 else:
     try:
-        df = load_data(st.secrets["sheet_csv_url"])
+        df = load_data(csv_url)
     except Exception as e:
         st.error(f"Could not read the Google Sheet. Error: {e}")
         st.stop()

@@ -4,10 +4,10 @@ import pandas as pd
 from rapidfuzz import fuzz
 
 # --- CONFIGURATION ---
-COL_NAME = "Name"
-COL_ROLE = "Field/Sector"
-COL_INDUSTRY = "Field/Sector"
-COL_RESUME = "Resume"
+COL_NAME = "Candidate Name"
+COL_ROLE = "Role"
+COL_INDUSTRY = "Industry"
+COL_RESUME = "Resume Link"
 
 SYNONYMS = {
     "frontend": ["react", "angular", "vue", "ui", "javascript", "css"],
@@ -33,16 +33,14 @@ def load_data(csv_url):
 # --- SECRETS CHECK & EXECUTION ---
 csv_url = None
 
-# 1. Try Railway Environment Variables
 if "SHEET_CSV_URL" in os.environ:
-    csv_url = os.environ["SHEET_CSV_URL"]
+    csv_url = os.environ["SHEET_CSV_URL"].strip().strip('"').strip("'")
 else:
-    # 2. Try Streamlit Secrets (for local development)
     try:
         if "sheet_csv_url" in st.secrets:
-            csv_url = st.secrets["sheet_csv_url"]
+            csv_url = st.secrets["sheet_csv_url"].strip().strip('"').strip("'")
     except FileNotFoundError:
-        pass # Ignore the error if no secrets file exists
+        pass 
 
 if not csv_url:
     st.error("Missing 'SHEET_CSV_URL'! Ensure your Railway environment variable is set.")
@@ -112,32 +110,36 @@ with col2:
 st.divider()
 
 # --- DISPLAY RESULTS ---
-results_df = search_candidates(df, search_query, selected_roles, selected_industries)
-
-if results_df.empty:
-    st.warning("No candidates found matching your criteria.")
+# Only execute and display the search if the user has provided at least one input
+if not search_query and not selected_roles and not selected_industries:
+    st.info("👋 Enter a search term or select filters above to start finding candidates.")
 else:
-    st.success(f"Found {len(results_df)} candidate(s)")
-    
-    for _, row in results_df.iterrows():
-        with st.container():
-            st.markdown(f"""
-                <div style="
-                    border: 1px solid #e0e0e0; 
-                    border-radius: 8px; 
-                    padding: 20px; 
-                    margin-bottom: 10px;
-                    background-color: #f9f9fb;
-                    color: #333;">
-                    <h3 style="margin-top: 0; color: #0056b3;">{row[COL_NAME]}</h3>
-                    <p style="margin-bottom: 5px; font-size: 16px;">
-                        <b>Role:</b> {row[COL_ROLE]} <br>
-                        <b>Industry:</b> {row[COL_INDUSTRY]}
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            if pd.notna(row[COL_RESUME]) and str(row[COL_RESUME]).strip() != "":
-                st.link_button("📄 View Resume", row[COL_RESUME])
-            
-            st.write("")
+    results_df = search_candidates(df, search_query, selected_roles, selected_industries)
+
+    if results_df.empty:
+        st.warning("No candidates found matching your criteria.")
+    else:
+        st.success(f"Found {len(results_df)} candidate(s)")
+        
+        for _, row in results_df.iterrows():
+            with st.container():
+                st.markdown(f"""
+                    <div style="
+                        border: 1px solid #e0e0e0; 
+                        border-radius: 8px; 
+                        padding: 20px; 
+                        margin-bottom: 10px;
+                        background-color: #f9f9fb;
+                        color: #333;">
+                        <h3 style="margin-top: 0; color: #0056b3;">{row[COL_NAME]}</h3>
+                        <p style="margin-bottom: 5px; font-size: 16px;">
+                            <b>Role:</b> {row[COL_ROLE]} <br>
+                            <b>Industry:</b> {row[COL_INDUSTRY]}
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                if pd.notna(row[COL_RESUME]) and str(row[COL_RESUME]).strip() != "":
+                    st.link_button("📄 View Resume", row[COL_RESUME])
+                
+                st.write("")
